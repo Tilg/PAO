@@ -54,19 +54,6 @@ public class ClientAgent extends Agent {
 		return listAgent;
 	}
 
-	public void askProductByRefWithSeller(String ref, AID id) {
-		try {
-			ACLMessage aclMessage = new ACLMessage(ACLMessage.QUERY_REF);
-			aclMessage.setOntology("request-one-product");
-			aclMessage.addReceiver(id);
-			aclMessage.setContent(ref);
-
-			this.send(aclMessage);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-		}
-	}
-
 	public String getProduct() {
 		return product;
 	}
@@ -93,13 +80,7 @@ public class ClientAgent extends Agent {
 			switch (step) {
 			case 0:
 				// Send the cfp to all sellers
-				ACLMessage cfp = new ACLMessage(ACLMessage.QUERY_REF);
-				for (int i = 0; i < sellerAgents.length; ++i) {
-					cfp.addReceiver(sellerAgents[i]);
-				}
-				cfp.setOntology("request-one-product");
-				cfp.setContent(product);
-				myAgent.send(cfp);
+				askProductRefWithSeller();
 				step = 1;
 				break;
 
@@ -127,45 +108,108 @@ public class ClientAgent extends Agent {
 					block();
 				}
 				break;
-				
-			case 2 :
-				//contact supplier to see if their price is better
+
+			case 2:
+				// contact supplier to see if their price is better
 				// Send the cfp to all sellers
-				ACLMessage messageForSupplier = new ACLMessage(ACLMessage.QUERY_REF);
-				for (int i = 0; i < supplierAgent.length; ++i) {
-					messageForSupplier.addReceiver(supplierAgent[i]);
-				}
-				messageForSupplier.setOntology("");
-				messageForSupplier.setContent("idproduit=" + product);
-				myAgent.send(messageForSupplier);
+				getAnswerFromSeller();
 				step = 3;
 				break;
-			
-			case 3 : 
-				//receive the proposals from the supplier
-				// Receive all proposals/refusals from seller agents
-				ACLMessage replySupplier = myAgent.receive();
-				if (replySupplier != null) {
-					// Reply received
-					if (replySupplier.getPerformative() == ACLMessage.PROPOSE) {
-						// This is an offer
-						int price = Integer.parseInt(replySupplier.getContent());
-						if (bestSeller == null || price < bestPrice) {
-							// This is the best offer at present
-							bestPrice = price;
-							bestSeller = replySupplier.getSender();
-						}
-					}
-					repliesCnt++;
-					if (repliesCnt >= sellerAgents.length) {
-						// We received all replies
-						step = 2;
-					}
-				} else {
-					block();
-				}
+
+			case 3:
+				selectBestPrice();
+				break;
+
+			case 4:
+				 acceptProduct();
+				System.out.println("Buying process terminated");
 				break;
 			}
+		}
+		
+		public void askProductRefWithSeller(){
+			ACLMessage cfp = new ACLMessage(ACLMessage.QUERY_REF);
+			for (int i = 0; i < sellerAgents.length; ++i) {
+				cfp.addReceiver(sellerAgents[i]);
+			}
+			cfp.setOntology("request-one-product");
+			cfp.setContent(product);
+			myAgent.send(cfp);
+		}
+		
+		public void askProductWithCriteria(){
+			ACLMessage replySupplier = myAgent.receive();
+			if (replySupplier != null) {
+				// Reply received
+				// if (replySupplier.getPerformative() ==
+				// ACLMessage.PROPOSE) {
+				// This is an offer
+				int price = Integer.parseInt(replySupplier.getContent());
+				if (bestSeller == null || price < bestPrice) {
+					// This is the best offer at present
+					bestPrice = price;
+					bestSeller = replySupplier.getSender();
+				}
+				// }
+				repliesCnt++;
+				if (repliesCnt >= sellerAgents.length) {
+					// We received all replies
+					step = 4;
+				}
+			} else {
+				block();
+			}
+		}
+		
+		public void selectBestPrice(){
+			// receive the proposals from the supplier
+			// Receive all proposals/refusals from seller agents
+			ACLMessage replySupplier = myAgent.receive();
+			if (replySupplier != null) {
+				// Reply received
+				// if (replySupplier.getPerformative() ==
+				// ACLMessage.PROPOSE) {
+				// This is an offer
+				int price = Integer.parseInt(replySupplier.getContent());
+				if (bestSeller == null || price < bestPrice) {
+					// This is the best offer at present
+					bestPrice = price;
+					bestSeller = replySupplier.getSender();
+				}
+				// }
+				repliesCnt++;
+				if (repliesCnt >= sellerAgents.length) {
+					// We received all replies
+					step = 4;
+				}
+			} else {
+				block();
+			}
+		}
+		
+		public void getAnswerFromSeller(){
+			ACLMessage messageForSupplier = new ACLMessage(
+					ACLMessage.QUERY_REF);
+			for (int i = 0; i < supplierAgent.length; ++i) {
+				messageForSupplier.addReceiver(supplierAgent[i]);
+			}
+			messageForSupplier.setOntology("");
+			messageForSupplier.setContent("idproduit=" + product);
+			myAgent.send(messageForSupplier);
+		}
+		
+		public void acceptProduct(){
+			// decide which supplier or seller we will select and order a
+			// product
+			ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
+			order.addReceiver(bestSeller);
+			if(bestSeller.getName().equals("Fournisseur")){
+				order.setOntology("achat");
+			}else{
+				
+			}
+			order.setContent(product);
+			myAgent.send(order);
 		}
 
 		@Override
