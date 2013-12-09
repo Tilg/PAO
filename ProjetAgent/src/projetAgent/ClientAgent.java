@@ -1,8 +1,14 @@
 package projetAgent;
 
+import java.util.Timer;
+import java.util.TimerTask;
+
+import interfaceGraphique.InterfaceRecherche;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.Behaviour;
+import jade.core.behaviours.CyclicBehaviour;
+import jade.core.behaviours.OneShotBehaviour;
 import jade.core.behaviours.TickerBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAException;
@@ -11,42 +17,58 @@ import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 
+/**
+ * Cette classe représente l'agent client 
+ * @author Phongphet
+ *
+ */
+
 public class ClientAgent extends Agent {
 
-	private String product;
-	private AID[] sellerAgents;
-	private AID[] supplierAgent;
+	private static AID[] sellerAgent;
+	private static AID[] supplierAgent;
+	private InterfaceRecherche interfaceR;
 
 	protected void setup() {
-		System.out.println("We are client agent");
-		Object[] args = getArguments();
-		if (args != null && args.length > 1) {
-			product = (String) args[0];
-			System.out.println("We are trying to by this product : " + args[0]);
-			addBehaviour(new TickerBehaviour(this, 60000) {
-				@Override
-				protected void onTick() {
-					sellerAgents = searchAgents("selling");
-					supplierAgent = searchAgents("supplying");
-				}
-			});
-		}
+		System.out.println("----- We are client agent -----");
+		interfaceR = new InterfaceRecherche();
+		interfaceR.lancerInterface();
+		Timer timer = new Timer();
+		/*On cherche les agents vendeurs et fournisseurs dans notre plateforme central, on renouvelle cette 
+		 * operation tous les 2 secondes*/
+		TimerTask task = new TimerTask() {
+			
+			@Override
+			public void run() {
+				// TODO Auto-generated method stub
+				sellerAgent = searchAgents("business");
+				supplierAgent = searchAgents("provider");
+			}
+		};
+		
+		 timer.scheduleAtFixedRate(task, 0, 3*1000);
+		addBehaviour(new ClientBehavior());
 	}
 
+	/**
+	 * Cette méthode permet de retrouver tous les agents en fonction du type
+	 * @param type
+	 * @return
+	 */
 	private AID[] searchAgents(String type) {
 		AID[] listAgent = null;
 		DFAgentDescription dfd = new DFAgentDescription();
 		ServiceDescription sd = new ServiceDescription();
-		sd.setType("selling");
+		sd.setType(type);
 		dfd.addServices(sd);
 
 		try {
 			DFAgentDescription[] result = DFService.search(this, dfd);
-			sellerAgents = new AID[result.length];
-			System.out.println("Search for sellor, there are : "
+			listAgent = new AID[result.length];
+			System.out.println("Search for "+ type +", there are : "
 					+ result.length + " elements");
 			for (int i = 0; i < result.length; i++) {
-				sellerAgents[i] = result[i].getName();
+				listAgent[i] = result[i].getName();
 			}
 		} catch (FIPAException fe) {
 			fe.printStackTrace();
@@ -54,169 +76,11 @@ public class ClientAgent extends Agent {
 		return listAgent;
 	}
 
-	public String getProduct() {
-		return product;
+	public static AID[] getSellerAgents() {
+		return sellerAgent;
 	}
 
-	public AID[] getSellerAgents() {
-		return sellerAgents;
-	}
-
-	public AID[] getSupplierAgent() {
+	public static AID[] getSupplierAgent() {
 		return supplierAgent;
-	}
-
-	private class ClientBehaviour extends Behaviour {
-
-		private AID bestSeller;
-		private int bestPrice;
-		private int repliesCnt = 0;
-		private MessageTemplate mt;
-		private int step = 0;
-
-		@Override
-		public void action() {
-			// TODO Auto-generated method stub
-			switch (step) {
-			case 0:
-				// Send the cfp to all sellers
-				askProductRefWithSeller();
-				step = 1;
-				break;
-
-			case 1:
-
-				// Receive all proposals/refusals from seller agents
-				ACLMessage replySeller = myAgent.receive();
-				if (replySeller != null) {
-					// Reply received
-					if (replySeller.getPerformative() == ACLMessage.PROPOSE) {
-						// This is an offer
-						int price = Integer.parseInt(replySeller.getContent());
-						if (bestSeller == null || price < bestPrice) {
-							// This is the best offer at present
-							bestPrice = price;
-							bestSeller = replySeller.getSender();
-						}
-					}
-					repliesCnt++;
-					if (repliesCnt >= sellerAgents.length) {
-						// We received all replies
-						step = 2;
-					}
-				} else {
-					block();
-				}
-				break;
-
-			case 2:
-				// contact supplier to see if their price is better
-				// Send the cfp to all sellers
-				getAnswerFromSeller();
-				step = 3;
-				break;
-
-			case 3:
-				selectBestPrice();
-				break;
-
-			case 4:
-				 acceptProduct();
-				System.out.println("Buying process terminated");
-				break;
-			}
-		}
-		
-		public void askProductRefWithSeller(){
-			ACLMessage cfp = new ACLMessage(ACLMessage.QUERY_REF);
-			for (int i = 0; i < sellerAgents.length; ++i) {
-				cfp.addReceiver(sellerAgents[i]);
-			}
-			cfp.setOntology("request-one-product");
-			cfp.setContent(product);
-			myAgent.send(cfp);
-		}
-		
-		public void askProductWithCriteria(){
-			ACLMessage replySupplier = myAgent.receive();
-			if (replySupplier != null) {
-				// Reply received
-				// if (replySupplier.getPerformative() ==
-				// ACLMessage.PROPOSE) {
-				// This is an offer
-				int price = Integer.parseInt(replySupplier.getContent());
-				if (bestSeller == null || price < bestPrice) {
-					// This is the best offer at present
-					bestPrice = price;
-					bestSeller = replySupplier.getSender();
-				}
-				// }
-				repliesCnt++;
-				if (repliesCnt >= sellerAgents.length) {
-					// We received all replies
-					step = 4;
-				}
-			} else {
-				block();
-			}
-		}
-		
-		public void selectBestPrice(){
-			// receive the proposals from the supplier
-			// Receive all proposals/refusals from seller agents
-			ACLMessage replySupplier = myAgent.receive();
-			if (replySupplier != null) {
-				// Reply received
-				// if (replySupplier.getPerformative() ==
-				// ACLMessage.PROPOSE) {
-				// This is an offer
-				int price = Integer.parseInt(replySupplier.getContent());
-				if (bestSeller == null || price < bestPrice) {
-					// This is the best offer at present
-					bestPrice = price;
-					bestSeller = replySupplier.getSender();
-				}
-				// }
-				repliesCnt++;
-				if (repliesCnt >= sellerAgents.length) {
-					// We received all replies
-					step = 4;
-				}
-			} else {
-				block();
-			}
-		}
-		
-		public void getAnswerFromSeller(){
-			ACLMessage messageForSupplier = new ACLMessage(
-					ACLMessage.QUERY_REF);
-			for (int i = 0; i < supplierAgent.length; ++i) {
-				messageForSupplier.addReceiver(supplierAgent[i]);
-			}
-			messageForSupplier.setOntology("");
-			messageForSupplier.setContent("idproduit=" + product);
-			myAgent.send(messageForSupplier);
-		}
-		
-		public void acceptProduct(){
-			// decide which supplier or seller we will select and order a
-			// product
-			ACLMessage order = new ACLMessage(ACLMessage.ACCEPT_PROPOSAL);
-			order.addReceiver(bestSeller);
-			if(bestSeller.getName().equals("Fournisseur")){
-				order.setOntology("achat");
-			}else{
-				
-			}
-			order.setContent(product);
-			myAgent.send(order);
-		}
-
-		@Override
-		public boolean done() {
-			// TODO Auto-generated method stub
-			return false;
-		}
-
 	}
 }
